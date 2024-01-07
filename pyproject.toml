@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pwnbrute"
+description = "A small wrapper for probabilistic exploits based on pwntools"
+license = { text = "MIT" }
+authors = [
+    { name = "Lnevx", email = "lnevx@protonmail.com"}
+]
+version = "1.0.0"
+dependencies = ["pwntools"]
+
+[tool.hatch.build.targets.sdist]
+include = ["pwnbrute.py"]

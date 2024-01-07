@@ -11,6 +11,13 @@ you have to run them **a lot of times**. However, this task can be handed to pwn
 quite simply and quickly
 
 
+### Installation
+
+```bash
+pip install git+https://github.com/Lnevx/pwnbrute
+```
+
+
 ### Usage
 
 1. Move the exploit logic in a separate function and pass it to the `brute` function
