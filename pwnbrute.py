@@ -151,7 +151,7 @@ class WorkerManager:
 
 
 def success():
-    """Notifies that the probabilistic part of the exploit has been completed and control
+    """Notifies that the probabilistic part of the exploit has been completed and console
     can be returned to the exploit
     """
 
