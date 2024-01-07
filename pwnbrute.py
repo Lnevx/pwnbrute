@@ -42,79 +42,94 @@ class RunStats:
         )
 
 
-class WorkerManager:
-    def __init__(self, target, workers):
-        self._target = target
+class Worker(Process):
+    def __init__(self, *args, worker_id=None, **kwargs):
+        self._success_event = Event()
+        self._worker_id = worker_id
+        self._worker_stdout = None
 
-        self._workers = [None] * workers
-        self._success = [None] * workers
+        super().__init__(*args, **kwargs)
 
-        self.__CURRENT_WORKER_ID = None
+    def run(self, *args, **kwargs):
+        self.__setup_env()
+        super().run(*args, **kwargs)
 
-    def start(self):
-        pass
-
-    def stop(self):
-        pass
-
-    def sync(self):
-        for i, worker in enumerate(self._workers):
-            if worker is None:
-                # closed_workers_cnt += 1
-                self._new_worker(i)
-
-            elif worker.exitcode is not None and worker.exitcode != 0:
-                # closed_workers_cnt += 1
-                self._new_worker(i)
-
-            elif self._success[i].is_set():
-                self.stop()
-                return worker
-
-    def _new_worker(self, i):
-        self._success[i] = Event()
-        self._workers[i] = Process(target=self._worker_wrapper, args=(self._target, i))
-        self._workers[i].start()
-
-    def worker_success(self):
-        if self.__CURRENT_WORKER_ID is None:
-            raise Exception
-
-        self._success[self.__CURRENT_WORKER_ID].set()
-
-        sys.stdout = self.__original_stdout
-        sys.stderr = self.__original_stderr
-        term.term_mode = self.__original_term_mode
-        context.update(log_console=sys.stdout)
-
-    def _worker_wrapper(self, target, number):
-        self.__CURRENT_WORKER_ID = number
+    def __setup_env(self):
         self.__original_stdout = sys.stdout
         self.__original_stderr = sys.stderr
         self.__original_term_mode = term.term_mode
 
         out_path = Path('.pwnbrute')
         out_path.mkdir(parents=True, exist_ok=True)
-        worker_stdout_path = out_path / f'worker-{number}.out'
-        worker_stdout = open(worker_stdout_path, 'w')
+        worker_stdout_path = out_path / f'worker-{self._worker_id}.out'
 
-        sys.stdout = sys.stderr = worker_stdout
+        self._worker_stdout = open(worker_stdout_path, 'w')
+
+        sys.stdout = sys.stderr = self._worker_stdout
         term.term_mode = False
-        context.update(log_console=worker_stdout)
+        context.update(log_console=self._worker_stdout)
 
-        target()
+    def __restore_env(self):
+        sys.stdout = self.__original_stdout
+        sys.stderr = self.__original_stderr
+        term.term_mode = self.__original_term_mode
+        context.update(log_console=sys.stdout)
 
-        self.worker_success()
+        self._worker_stdout.close()
+        out_path = Path('.pwnbrute')
+        output = open(out_path / f'worker-{self._worker_id}.out')
+
+        print(output.read())
+
+    def is_success(self):
+        return self._success_event.is_set()
+
+    def set_success(self):
+        self._success_event.set()
+        self.__restore_env()
+        pause()
 
 
-workers = None
+_CURRENT_WORKER = None
+
+
+class WorkerManager:
+    def __init__(self, target, workers):
+        self._target = target
+        self._workers = [None] * workers
+
+    def sync(self):
+        for i, worker in enumerate(self._workers):
+            if worker is None:
+                self._new_worker(i)
+
+            elif worker.exitcode is not None and worker.exitcode != 0:
+                self._new_worker(i)
+
+            elif worker.is_success():
+                self._workers[i] = None
+
+                # Stop workers
+                for _w in self._workers:
+                    if _w is not None:
+                        _w.kill()
+
+                return worker
+
+    def _new_worker(self, i):
+        self._workers[i] = Worker(target=self._target, worker_id=i)
+
+        global _CURRENT_WORKER
+        _CURRENT_WORKER = self._workers[i]
+
+        self._workers[i].start()
 
 
 def success():
-    if workers is None:
+    if _CURRENT_WORKER is None:
         return
 
-    workers.worker_success()
+    _CURRENT_WORKER.set_success()
 
 
 def brute(target, k):
@@ -130,5 +145,6 @@ def brute(target, k):
 
     while True:
         successed_worker = workers.sync()
-        if successed_worker is not None:
+        if successed_worker:
+            successed_worker.join()
             break
