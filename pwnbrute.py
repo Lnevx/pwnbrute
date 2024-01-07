@@ -1,9 +1,9 @@
-from multiprocessing import Process
+from multiprocessing import Process, Event
 from pathlib import Path
 from time import monotonic
 import sys
 
-from pwn import log, args, context, term
+from pwn import log, args, context, term, pause
 
 
 class RunStats:
@@ -42,17 +42,79 @@ class RunStats:
         )
 
 
-def _wrapper(target, number):
-    out_path = Path('.pwnbrute')
-    out_path.mkdir(parents=True, exist_ok=True)
-    worker_stdout_path = out_path / f'worker-{number}.out'
-    worker_stdout = open(worker_stdout_path, 'w')
+class WorkerManager:
+    def __init__(self, target, workers):
+        self._target = target
 
-    sys.stdout = sys.stderr = worker_stdout
-    term.term_mode = False
+        self._workers = [None] * workers
+        self._success = [None] * workers
 
-    with context.local(log_console=worker_stdout):
+        self.__CURRENT_WORKER_ID = None
+
+    def start(self):
+        pass
+
+    def stop(self):
+        pass
+
+    def sync(self):
+        for i, worker in enumerate(self._workers):
+            if worker is None:
+                # closed_workers_cnt += 1
+                self._new_worker(i)
+
+            elif worker.exitcode is not None and worker.exitcode != 0:
+                # closed_workers_cnt += 1
+                self._new_worker(i)
+
+            elif self._success[i].is_set():
+                self.stop()
+                return worker
+
+    def _new_worker(self, i):
+        self._success[i] = Event()
+        self._workers[i] = Process(target=self._worker_wrapper, args=(self._target, i))
+        self._workers[i].start()
+
+    def worker_success(self):
+        if self.__CURRENT_WORKER_ID is None:
+            raise Exception
+
+        self._success[self.__CURRENT_WORKER_ID].set()
+
+        sys.stdout = self.__original_stdout
+        sys.stderr = self.__original_stderr
+        term.term_mode = self.__original_term_mode
+        context.update(log_console=sys.stdout)
+
+    def _worker_wrapper(self, target, number):
+        self.__CURRENT_WORKER_ID = number
+        self.__original_stdout = sys.stdout
+        self.__original_stderr = sys.stderr
+        self.__original_term_mode = term.term_mode
+
+        out_path = Path('.pwnbrute')
+        out_path.mkdir(parents=True, exist_ok=True)
+        worker_stdout_path = out_path / f'worker-{number}.out'
+        worker_stdout = open(worker_stdout_path, 'w')
+
+        sys.stdout = sys.stderr = worker_stdout
+        term.term_mode = False
+        context.update(log_console=worker_stdout)
+
         target()
+
+        self.worker_success()
+
+
+workers = None
+
+
+def success():
+    if workers is None:
+        return
+
+    workers.worker_success()
 
 
 def brute(target, k):
@@ -62,43 +124,11 @@ def brute(target, k):
 
     log.success('PWN Brute started')
 
-    workers = [None] * k
-    stats = RunStats()
+    global workers
+    workers = WorkerManager(target, k)
+    # stats = RunStats()
 
     while True:
-        for i, w in enumerate(workers):
-            stats.sync()
-
-            if w is None:
-                w = Process(target=_wrapper, args=(target, i))
-                w.start()
-                workers[i] = w
-                continue
-
-            if w.exitcode is None:
-                continue
-
-            if w.exitcode != 0:
-                workers[i] = None
-
-                stats.increase()
-                continue
-
-            stats.increase()
-            stats.finish()
-
-            w.join()
-            workers[i] = None
-            for w in filter(None, workers):
-                w.kill()
-
-            log.info(
-                f'Successfully bruted in {stats.run_time / 60:.2f} min '
-                f'({stats.runs} runs)'
-            )
-            log.info('Output:')
-
-            out_path = Path('.pwnbrute') / f'worker-{i}.out'
-            print()
-            print(open(out_path).read())
-            return
+        successed_worker = workers.sync()
+        if successed_worker is not None:
+            break
