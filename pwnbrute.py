@@ -23,18 +23,22 @@ class RunStatus:
 
         self._runs = 0
         self._speed = 'N/A'
+        self._timeouts = 0
 
     def _print_status(self, printer=None):
         printer(
             f"runs: {self._runs}, "
-            f"speed: {self._speed} exec/m"
+            f"speed: {self._speed} exec/m, "
+            f"tms: {self._timeouts} "
+            + (f"({self._timeouts / self._runs * 100:.2f} %)" if self._runs else '(N/A %)')
         )
 
     def sync(self, status):
-        fails, _ = status
+        fails, successes, timeouts = status
 
-        self._runs += fails
-        self._rate_runs += fails
+        self._runs += sum(status)
+        self._rate_runs += sum(status)
+        self._timeouts += timeouts
 
         time = monotonic()
         if time - self._prev_time > self._SPEED_RATE:
@@ -56,6 +60,7 @@ class Worker(Process):
         self._success_event = Event()
         self._worker_id = worker_id
         self._worker_stdout = None
+        self._start_time = None
 
         out_path = Path('.pwnbrute')
         out_path.mkdir(parents=True, exist_ok=True)
@@ -66,6 +71,10 @@ class Worker(Process):
     def run(self, *args, **kwargs):
         self.__setup_env()
         super().run(*args, **kwargs)
+
+    def start(self, *args, **kwargs):
+        self._start_time = monotonic()
+        super().start(*args, **kwargs)
 
     def __setup_env(self):
         self.__original_stdout = sys.stdout
@@ -86,8 +95,11 @@ class Worker(Process):
 
         self._worker_stdout.close()
 
+    def running_time(self):
+        return monotonic() - self._start_time
+
     def print_output(self):
-        log.info('Exploit output:')
+        log.info(f'Exploit output (saved to {self._stdout_path}):')
         print('-' * 40)
         print(open(self._stdout_path).read().strip())
         print('-' * 40)
@@ -106,17 +118,18 @@ _CURRENT_WORKER = None
 
 
 class WorkerManager:
-    def __init__(self, target, workers):
+    def __init__(self, target, workers, timeout):
         self._target = target
 
         self._workers = [None] * workers
+        self._timeout = timeout
         self._success_worker = None
 
     def get_success_worker(self):
         return self._success_worker
 
     def sync(self):
-        fails = successes = 0
+        fails = successes = timeouts = 0
 
         for i, worker in enumerate(self._workers):
             if worker is None:
@@ -139,7 +152,12 @@ class WorkerManager:
 
                 break
 
-        return fails, successes
+            elif worker.running_time() > self._timeout:
+                timeouts += 1
+                worker.kill()
+                self._workers[i] = None
+
+        return fails, successes, timeouts
 
     def _new_worker(self, i):
         self._workers[i] = Worker(target=self._target, worker_id=i)
@@ -164,13 +182,14 @@ def success():
     _CURRENT_WORKER.set_success()
 
 
-def brute(target, *, workers=4):
+def brute(target, *, workers=4, timeout=60):
     """Entrypoint of PwnBrute. Will call the `target` function (exploit) until
     it runs without exceptions
 
     Args:
         target (callable): Exploit entry function
         workers (int): Number of cuncurrent exploits
+        timeout (int): Max time that exploit may run (in seconds)
     """
 
     if args.TESTRUN:
@@ -179,11 +198,11 @@ def brute(target, *, workers=4):
 
     log.info('PWN Brute started')
 
-    workers = WorkerManager(target, workers)
+    workers = WorkerManager(target, workers, timeout)
     run_status = RunStatus()
 
     while True:
-        status = (_, successes) = workers.sync()
+        status = (_, successes, _) = workers.sync()
         run_status.sync(status)
 
         if not successes:
