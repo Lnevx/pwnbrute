@@ -3,43 +3,48 @@ from pathlib import Path
 from time import monotonic
 import sys
 
-from pwn import log, args, context, term, pause
+from pwn import log, args, context, term
 
 
-class RunStats:
-    def __init__(self, delay=1):
-        self._delay = delay
+class RunStatus:
+    _SPEED_RATE = 5
 
-        self._prev_time = monotonic()
+    def __init__(self, rate=1):
+        self._rate = rate
 
-        self.runs = self._cur_runs = self.run_time = 0
-        self._progress = log.progress('Stat')
+        self._progress = log.progress('Status', rate=rate)
 
-    def increase(self):
-        self._cur_runs += 1
-        self.runs += 1
+        self._prev_time = self._start_time = monotonic()
+        self._rate_runs = 0
 
-    def sync(self):
-        time = monotonic()
-        if time - self._prev_time > self._delay:
-            self.run_time += time - self._prev_time
-            self._prev_time = time
+        self._runs = 0
+        self._speed = 'N/A'
 
-            self._progress.status(
-                f"runs: {self.runs}, "
-                f"speed: {int(self._cur_runs / self._delay * 60)} exec/m"
-            )
-            self._cur_runs = 0
-
-    def finish(self):
-        time = monotonic()
-        self.run_time += time - self._prev_time
-        self._prev_time = time
-
-        self._progress.success(
-            f"runs: {self.runs}, "
-            f"speed: {int(self._cur_runs / self._delay * 60)} exec/m"
+    def _print_status(self, printer=None):
+        printer(
+            f"runs: {self._runs}, "
+            f"speed: {self._speed} exec/m"
         )
+
+    def sync(self, status):
+        fails, _ = status
+
+        self._runs += fails
+        self._rate_runs += fails
+
+        time = monotonic()
+        if time - self._prev_time > self._SPEED_RATE:
+            self._speed = int(self._rate_runs / (time - self._prev_time) * 60)
+            self._prev_time = time
+            self._rate_runs = 0
+
+        self._print_status(self._progress.status)
+
+    def stop(self):
+        self._print_status(self._progress.success)
+
+        delta = (monotonic() - self._start_time) / 60
+        log.success(f"Successfully bruted in {delta:.2f} (min) with {self._runs} runs")
 
 
 class Worker(Process):
@@ -77,15 +82,19 @@ class Worker(Process):
 
         self._worker_stdout.close()
 
-        print(open(self._stdout_path).read())
+    def print_output(self):
+        log.info('Exploit output:')
+        print('-' * 40)
+        print(open(self._stdout_path).read().strip())
+        print('-' * 40)
 
     def is_success(self):
         return self._success_event.is_set()
 
     def set_success(self):
         self._success_event.set()
-        pause()
         self.__restore_env()
+        input()
 
 
 _CURRENT_WORKER = None
@@ -148,17 +157,24 @@ def brute(target, k):
         target()
         return
 
-    log.success('PWN Brute started')
+    log.info('PWN Brute started')
 
     global workers
     workers = WorkerManager(target, k)
-    # stats = RunStats()
+    run_status = RunStatus()
 
     while True:
-        fails, successes = workers.sync()
+        status = (_, successes) = workers.sync()
+        run_status.sync(status)
+
         if not successes:
             continue
 
+        run_status.stop()
         worker = workers.get_success_worker()
+        worker.print_output()
+
+        log.info('Press any key to continue')
+
         worker.join()
         break
