@@ -1,9 +1,9 @@
-from multiprocessing import Process, Event
+import sys
+from multiprocessing import Event, Process
 from pathlib import Path
 from time import monotonic
-import sys
 
-from pwn import log, args, context, term
+from pwn import args, context, log, term
 
 
 class PwnBruteException(Exception):
