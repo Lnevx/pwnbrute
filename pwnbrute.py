@@ -6,6 +6,10 @@ import sys
 from pwn import log, args, context, term
 
 
+class PwnBruteException(Exception):
+    pass
+
+
 class RunStatus:
     _SPEED_RATE = 5
 
@@ -97,6 +101,7 @@ class Worker(Process):
         input()
 
 
+# Will be used in subprocess
 _CURRENT_WORKER = None
 
 
@@ -121,7 +126,7 @@ class WorkerManager:
                 fails += 1
                 self._new_worker(i)
 
-            elif worker.is_success():
+            elif worker.is_success() or worker.exitcode == 0:
                 successes += 1
 
                 self._workers[i] = None
@@ -146,21 +151,35 @@ class WorkerManager:
 
 
 def success():
+    """Notifies that the probabilistic part of the exploit has been completed and control
+    can be returned to the exploit
+    """
+
     if _CURRENT_WORKER is None:
-        return
+        if args.TESTRUN:
+            return
+
+        raise PwnBruteException('Calling `success` of unintialized PwnBrute')
 
     _CURRENT_WORKER.set_success()
 
 
-def brute(target, k):
-    if args.TEST:
+def brute(target, *, workers=4):
+    """Entrypoint of PwnBrute. Will call the `target` function (exploit) until
+    it runs without exceptions
+
+    Args:
+        target (callable): Exploit entry function
+        workers (int): Number of cuncurrent exploits
+    """
+
+    if args.TESTRUN:
         target()
         return
 
     log.info('PWN Brute started')
 
-    global workers
-    workers = WorkerManager(target, k)
+    workers = WorkerManager(target, workers)
     run_status = RunStatus()
 
     while True:
@@ -178,3 +197,6 @@ def brute(target, k):
 
         worker.join()
         break
+
+
+__all__ = ('brute', 'success')
