@@ -2,6 +2,7 @@ import sys
 from multiprocessing import Event, Process
 from pathlib import Path
 from time import monotonic
+from io import StringIO
 
 from pwn import args, context, log, term
 
@@ -64,7 +65,7 @@ class Worker(Process):
 
         out_path = Path('.pwnbrute')
         out_path.mkdir(parents=True, exist_ok=True)
-        self._stdout_path = out_path / f'worker-{self._worker_id}.out'
+        self._stdout_path = out_path / f'success-worker.out'
 
         super().__init__(*args, **kwargs)
 
@@ -81,7 +82,7 @@ class Worker(Process):
         self.__original_stderr = sys.stderr
         self.__original_term_mode = term.term_mode
 
-        self._worker_stdout = open(self._stdout_path, 'w')
+        self._worker_stdout = StringIO()
 
         sys.stdout = sys.stderr = self._worker_stdout
         term.term_mode = False
@@ -92,6 +93,9 @@ class Worker(Process):
         sys.stderr = self.__original_stderr
         term.term_mode = self.__original_term_mode
         context.update(log_console=sys.stdout)
+
+        with open(self._stdout_path, 'w') as file:
+            file.write(self._worker_stdout.getvalue())
 
         self._worker_stdout.close()
 
