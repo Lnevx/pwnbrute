@@ -1,10 +1,10 @@
 import sys
+from io import StringIO
 from multiprocessing import Event, Process
 from pathlib import Path
 from time import monotonic
-from io import StringIO
 
-from pwn import args, context, log, term
+from pwn import args, context, log, pause, term
 
 
 class PwnBruteException(Exception):
@@ -59,13 +59,14 @@ class RunStatus:
 class Worker(Process):
     def __init__(self, *args, worker_id=None, **kwargs):
         self._success_event = Event()
+        self._unpause_event = Event()
         self._worker_id = worker_id
         self._worker_stdout = None
         self._start_time = None
 
         out_path = Path('.pwnbrute')
         out_path.mkdir(parents=True, exist_ok=True)
-        self._stdout_path = out_path / f'success-worker.out'
+        self._stdout_path = out_path / 'success-worker.out'
 
         super().__init__(*args, **kwargs)
 
@@ -114,7 +115,10 @@ class Worker(Process):
     def set_success(self):
         self._success_event.set()
         self.__restore_env()
-        input()
+        self._unpause_event.wait()
+
+    def set_unpause(self):
+        self._unpause_event.set()
 
 
 # Will be used in subprocess
@@ -216,7 +220,8 @@ def brute(target, *, workers=4, timeout=60):
         worker = workers.get_success_worker()
         worker.print_output()
 
-        log.info('Press any key to continue')
+        pause()
+        worker.set_unpause()
 
         worker.join()
         break

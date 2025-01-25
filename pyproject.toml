@@ -10,7 +10,7 @@ authors = [
     { name = "Lnevx", email = "lnevx@protonmail.com"}
 ]
 version = "1.0.0"
-dependencies = ["pwntools"]
+dependencies = ["pwntools>=4.14"]
 
 [tool.hatch.build.targets.sdist]
 include = ["pwnbrute.py"]
