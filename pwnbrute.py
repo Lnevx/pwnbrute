@@ -1,3 +1,5 @@
+"""A small wrapper for probabilistic exploits based on pwntools."""
+
 import signal
 import sys
 from io import StringIO
@@ -8,7 +10,7 @@ from time import monotonic
 from pwn import args, context, log, pause, term
 
 
-class PwnBruteException(Exception):
+class PwnBruteError(Exception):
     pass
 
 
@@ -29,14 +31,14 @@ class RunStatus:
 
     def _print_status(self, printer=None):
         printer(
-            f"runs: {self._runs}, "
-            f"speed: {self._speed} exec/m, "
-            f"tms: {self._timeouts} "
-            + (f"({self._timeouts / self._runs * 100:.2f} %)" if self._runs else '(N/A %)')
+            f'runs: {self._runs}, '
+            f'speed: {self._speed} exec/m, '
+            f'tms: {self._timeouts} '
+            + (f'({self._timeouts / self._runs * 100:.2f} %)' if self._runs else '(N/A %)'),
         )
 
     def sync(self, status):
-        fails, successes, timeouts = status
+        _, _, timeouts = status
 
         self._runs += sum(status)
         self._rate_runs += sum(status)
@@ -54,7 +56,7 @@ class RunStatus:
         self._print_status(self._progress.success)
 
         delta = (monotonic() - self._start_time) / 60
-        log.success(f"Successfully bruted in {delta:.2f} (min) with {self._runs} runs")
+        log.success(f'Successfully bruted in {delta:.2f} (min) with {self._runs} runs')
 
 
 class Worker(Process):
@@ -80,7 +82,7 @@ class Worker(Process):
         super().start(*args, **kwargs)
 
     def __save_output(self, stdout_path):
-        with open(self._out_path / stdout_path, 'w') as file:
+        with (self._out_path / stdout_path).open('w') as file:
             file.write(self._worker_stdout.getvalue())
 
     def __setup_env(self):
@@ -103,7 +105,7 @@ class Worker(Process):
         self.__save_output('success-worker.out')
         self._worker_stdout.close()
 
-    def __handle_timeout(self, signum, frame):
+    def __handle_timeout(self, signum, frame):  # noqa: ARG002
         self.__save_output(f'timeout-worker-{self._worker_id}.out')
         sys.exit(0)
 
@@ -114,7 +116,8 @@ class Worker(Process):
         stdout_path = self._out_path / 'success-worker.out'
         log.info(f'Exploit output (saved to {stdout_path}):')
         print('-' * 40)
-        print(open(stdout_path).read().strip())
+        with stdout_path.open() as file:
+            print(file.read().strip())
         print('-' * 40)
 
     def is_success(self):
@@ -186,37 +189,40 @@ class WorkerManager:
         self._max_worker_id += 1
         self._workers[i] = Worker(target=self._target, worker_id=self._max_worker_id)
 
-        global _CURRENT_WORKER
+        global _CURRENT_WORKER  # noqa: PLW0603
         _CURRENT_WORKER = self._workers[i]
 
         self._workers[i].start()
 
 
 def success():
-    """Notifies that the probabilistic part of the exploit has been completed and console
-    can be returned to the exploit
     """
+    Notifies that the probabilistic part of the exploit has been completed and console
+    can be returned to the exploit.
 
+    """
     if _CURRENT_WORKER is None:
         if args.TESTRUN:
             return
 
-        raise PwnBruteException('Calling `success` of unintialized PwnBrute')
+        raise PwnBruteError('Calling `success` of unintialized PwnBrute')
 
     _CURRENT_WORKER.set_success()
 
 
 def brute(target, *, workers=4, timeout=60, save_timeouts=True):
-    """Entrypoint of PwnBrute. Will call the `target` function (exploit) until
-    it runs without exceptions
+    """
+    Entrypoint of PwnBrute. Will call the `target` function (exploit) until
+    it runs without exceptions.
 
     Args:
+    ----
         target (callable): Exploit entry function
         workers (int): Number of cuncurrent exploits
         timeout (int): Max time that exploit may run (in seconds)
         save_timeouts (bool): Save output of timeouted workers
-    """
 
+    """
     if args.TESTRUN:
         target()
         return

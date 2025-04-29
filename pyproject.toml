@@ -14,3 +14,39 @@ dependencies = ["pwntools<5,>=4.14"]
 
 [tool.hatch.build.targets.sdist]
 include = ["pwnbrute.py"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+preview = true
+select = [
+    "B",
+    "A",
+    "COM",
+    "C4",
+    "PIE",
+    "RET",
+    "SIM",
+    "ARG",
+    "PTH",
+    "I",
+    "N",
+    "PERF",
+    "E",
+    "W",
+    "D",
+    "F",
+    "PL",
+    "TRY"
+]
+ignore = [
+    "COM812",
+    "D203",
+    "D205",
+    "D212",
+    "TRY003"
+]
+per-file-ignores."examples/*.py" = [
+    "D"
+]
