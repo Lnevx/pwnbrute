@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.2.0
+    rev: v5.0.0
     hooks:
       - id: check-builtin-literals
       - id: check-docstring-first
@@ -10,11 +10,11 @@ repos:
       - id: trailing-whitespace
 
   - repo: https://github.com/PyCQA/isort
-    rev: 5.13.2
+    rev: 6.0.1
     hooks:
       - id: isort
 
   - repo: https://github.com/PyCQA/flake8
-    rev: 7.0.0
+    rev: 7.2.0
     hooks:
       - id: flake8

@@ -7,10 +7,10 @@ name = "pwnbrute"
 description = "A small wrapper for probabilistic exploits based on pwntools"
 license = { text = "MIT" }
 authors = [
-    { name = "Lnevx", email = "lnevx@protonmail.com"}
+    { name = "Lnevx", email = "lnevx@protonmail.com" }
 ]
-version = "1.0.0"
-dependencies = ["pwntools>=4.14"]
+version = "1.1.0"
+dependencies = ["pwntools<5,>=4.14"]
 
 [tool.hatch.build.targets.sdist]
 include = ["pwnbrute.py"]
