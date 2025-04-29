@@ -1,3 +1,4 @@
+import signal
 import sys
 from io import StringIO
 from multiprocessing import Event, Process
@@ -64,19 +65,23 @@ class Worker(Process):
         self._worker_stdout = None
         self._start_time = None
 
-        out_path = Path('.pwnbrute')
-        out_path.mkdir(parents=True, exist_ok=True)
-        self._stdout_path = out_path / 'success-worker.out'
+        self._out_path = Path('.pwnbrute')
+        self._out_path.mkdir(parents=True, exist_ok=True)
 
         super().__init__(*args, **kwargs)
 
     def run(self, *args, **kwargs):
         self.__setup_env()
+        signal.signal(signal.SIGTERM, self.__handle_timeout)
         super().run(*args, **kwargs)
 
     def start(self, *args, **kwargs):
         self._start_time = monotonic()
         super().start(*args, **kwargs)
+
+    def __save_output(self, stdout_path):
+        with open(self._out_path / stdout_path, 'w') as file:
+            file.write(self._worker_stdout.getvalue())
 
     def __setup_env(self):
         self.__original_stdout = sys.stdout
@@ -95,18 +100,21 @@ class Worker(Process):
         term.term_mode = self.__original_term_mode
         context.update(log_console=sys.stdout)
 
-        with open(self._stdout_path, 'w') as file:
-            file.write(self._worker_stdout.getvalue())
-
+        self.__save_output('success-worker.out')
         self._worker_stdout.close()
+
+    def __handle_timeout(self, signum, frame):
+        self.__save_output(f'timeout-worker-{self._worker_id}.out')
+        sys.exit(0)
 
     def running_time(self):
         return monotonic() - self._start_time
 
     def print_output(self):
-        log.info(f'Exploit output (saved to {self._stdout_path}):')
+        stdout_path = self._out_path / 'success-worker.out'
+        log.info(f'Exploit output (saved to {stdout_path}):')
         print('-' * 40)
-        print(open(self._stdout_path).read().strip())
+        print(open(stdout_path).read().strip())
         print('-' * 40)
 
     def is_success(self):
@@ -126,11 +134,13 @@ _CURRENT_WORKER = None
 
 
 class WorkerManager:
-    def __init__(self, target, workers, timeout):
+    def __init__(self, target, workers, timeout, save_timeouts):
         self._target = target
 
         self._workers = [None] * workers
+        self._max_worker_id = 0
         self._timeout = timeout
+        self._save_timeouts = save_timeouts
         self._success_worker = None
 
     def get_success_worker(self):
@@ -162,13 +172,19 @@ class WorkerManager:
 
             elif worker.running_time() > self._timeout:
                 timeouts += 1
-                worker.kill()
+
+                if self._save_timeouts:
+                    worker.terminate()
+                else:
+                    worker.kill()
+
                 self._workers[i] = None
 
         return fails, successes, timeouts
 
     def _new_worker(self, i):
-        self._workers[i] = Worker(target=self._target, worker_id=i)
+        self._max_worker_id += 1
+        self._workers[i] = Worker(target=self._target, worker_id=self._max_worker_id)
 
         global _CURRENT_WORKER
         _CURRENT_WORKER = self._workers[i]
@@ -190,7 +206,7 @@ def success():
     _CURRENT_WORKER.set_success()
 
 
-def brute(target, *, workers=4, timeout=60):
+def brute(target, *, workers=4, timeout=60, save_timeouts=True):
     """Entrypoint of PwnBrute. Will call the `target` function (exploit) until
     it runs without exceptions
 
@@ -198,6 +214,7 @@ def brute(target, *, workers=4, timeout=60):
         target (callable): Exploit entry function
         workers (int): Number of cuncurrent exploits
         timeout (int): Max time that exploit may run (in seconds)
+        save_timeouts (bool): Save output of timeouted workers
     """
 
     if args.TESTRUN:
@@ -206,7 +223,7 @@ def brute(target, *, workers=4, timeout=60):
 
     log.info('PWN Brute started')
 
-    workers = WorkerManager(target, workers, timeout)
+    workers = WorkerManager(target, workers, timeout, save_timeouts)
     run_status = RunStatus()
 
     while True:

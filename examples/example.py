@@ -32,4 +32,4 @@ def main():
 
 if __name__ == '__main__':
     # Start bruteforce
-    pwnbrute.brute(main, workers=16, timeout=3)
+    pwnbrute.brute(main, workers=16, timeout=3, save_timeouts=True)
