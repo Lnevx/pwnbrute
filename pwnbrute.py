@@ -202,7 +202,7 @@ def success():
 
     """
     if _CURRENT_WORKER is None:
-        if args.TESTRUN:
+        if not args.BRUTE:
             return
 
         raise PwnBruteError('Calling `success` of unintialized PwnBrute')
@@ -223,7 +223,7 @@ def brute(target, *, workers=4, timeout=60, save_timeouts=True):
         save_timeouts (bool): Save output of timeouted workers
 
     """
-    if args.TESTRUN:
+    if not args.BRUTE:
         target()
         return
 

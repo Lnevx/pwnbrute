@@ -23,6 +23,6 @@ pip install git+https://github.com/Lnevx/pwnbrute
 1. Move the exploit logic in a separate function and pass it to the `brute` function
 2. In your exploit, after passing the probabilistic part, add a call to the `success` function,
     which will return console to the exploit
-3. Run the exploit as usual and get a profit!!!
+3. Run the exploit with `BRUTE` argument and get a profit!!!
 
 For detailed usage see the [examples](examples/)
